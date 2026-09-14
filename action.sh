@@ -33,6 +33,8 @@ image_family=
 network=
 scopes=
 shutdown_timeout=
+max_run_duration=
+instance_labels=
 subnet=
 preemptible=
 ephemeral=
@@ -62,6 +64,8 @@ while getopts_long :h opt \
   network optional_argument \
   scopes required_argument \
   shutdown_timeout required_argument \
+  max_run_duration required_argument \
+  instance_labels optional_argument \
   subnet optional_argument \
   preemptible required_argument \
   ephemeral required_argument \
@@ -124,6 +128,12 @@ do
       ;;
     shutdown_timeout)
       shutdown_timeout=$OPTLARG
+      ;;
+    max_run_duration)
+      max_run_duration=$OPTLARG
+      ;;
+    instance_labels)
+      instance_labels=${OPTLARG-$instance_labels}
       ;;
     subnet)
       subnet=${OPTLARG-$subnet}
@@ -192,7 +202,8 @@ function start_vm {
   image_family_flag=$([[ -z "${image_family}" ]] || echo "--image-family=${image_family}")
   disk_size_flag=$([[ -z "${disk_size}" ]] || echo "--boot-disk-size=${disk_size}")
   boot_disk_type_flag=$([[ -z "${boot_disk_type}" ]] || echo "--boot-disk-type=${boot_disk_type}")
-  preemptible_flag=$([[ "${preemptible}" == "true" ]] && echo "--provisioning-model=SPOT --instance-termination-action=DELETE --max-run-duration=3d" || echo "")
+  preemptible_flag=$([[ "${preemptible}" == "true" ]] && echo "--provisioning-model=SPOT" || echo "")
+  max_run_duration_flag="--max-run-duration=${max_run_duration} --instance-termination-action=DELETE"
   ephemeral_flag=$([[ "${ephemeral}" == "true" ]] && echo "--ephemeral" || echo "")
   no_external_address_flag=$([[ "${no_external_address}" == "true" ]] && echo "--no-address" || echo "")
   network_flag=$([[ ! -z "${network}"  ]] && echo "--network=${network}" || echo "")
@@ -248,8 +259,6 @@ function start_vm {
 	./svc.sh install && \\
 	./svc.sh start && \\
 	gcloud compute instances add-labels ${VM_ID} --zone=${machine_zone} --labels=gh_ready=1
-	# 3 days represents the max workflow runtime. This will shutdown the instance if everything else fails.
-	nohup sh -c \"sleep 3d && ${shutdown_command}\" > /dev/null &
   "
 
   if $actions_preinstalled ; then
@@ -311,6 +320,10 @@ function start_vm {
   gh_repo_owner="$(truncate_to_label "${GITHUB_REPOSITORY_OWNER}")"
   gh_repo="$(truncate_to_label "${GITHUB_REPOSITORY##*/}")"
   gh_run_id="${GITHUB_RUN_ID}"
+  labels="gh_ready=0,gh_repo_owner=${gh_repo_owner},gh_repo=${gh_repo},gh_run_id=${gh_run_id}"
+  if [[ -n "${instance_labels}" ]]; then
+    labels+=",${instance_labels}"
+  fi
 
   gcloud compute instances create ${VM_ID} \
     --zone=${machine_zone} \
@@ -323,13 +336,14 @@ function start_vm {
     ${image_flag} \
     ${image_family_flag} \
     ${preemptible_flag} \
+    ${max_run_duration_flag} \
     ${no_external_address_flag} \
     ${network_flag} \
     ${subnet_flag} \
     ${accelerator} \
     ${maintenance_policy_flag} \
     "${min_cpu_platform_flag}" \
-    --labels=gh_ready=0,gh_repo_owner="${gh_repo_owner}",gh_repo="${gh_repo}",gh_run_id="${gh_run_id}" \
+    --labels="${labels}" \
     --metadata=startup-script="$startup_script" \
     && echo "label=${VM_ID}" >> $GITHUB_OUTPUT
 

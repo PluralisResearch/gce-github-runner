@@ -90,6 +90,14 @@ inputs:
     description: "Shutdown grace period (in seconds)."
     default: 30
     required: true
+  max_run_duration:
+    description: "Provider-enforced maximum VM runtime before deletion."
+    default: 3d
+    required: true
+  instance_labels:
+    description: "Additional comma-separated GCE instance labels."
+    default: ""
+    required: false
   actions_preinstalled:
     description: "Whether the GitHub actions have already been installed at `/actions-runner`."
     default: false
@@ -117,6 +125,9 @@ runs:
   using: "composite"
   steps:
     - id: gce-github-runner-script
+      env:
+        INPUT_INSTANCE_LABELS: ${{ inputs.instance_labels }}
+        INPUT_MAX_RUN_DURATION: ${{ inputs.max_run_duration }}
       run: >
         ${{ github.action_path }}/action.sh
         --command=start
@@ -133,6 +144,8 @@ runs:
         --disk_size=${{ inputs.disk_size }}
         --scopes=${{ inputs.scopes }}
         --shutdown_timeout=${{ inputs.shutdown_timeout }}
+        --max_run_duration="${INPUT_MAX_RUN_DURATION}"
+        --instance_labels="${INPUT_INSTANCE_LABELS}"
         --runner_service_account=${{ inputs.runner_service_account }}
         --image_project=${{ inputs.image_project }}
         --image=${{ inputs.image }}

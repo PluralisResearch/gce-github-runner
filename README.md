@@ -15,13 +15,15 @@ jobs:
       label: ${{ steps.create-runner.outputs.label }}
     steps:
       - id: create-runner
-        uses: related-sciences/gce-github-runner@v0.14
+        uses: PluralisResearch/gce-github-runner@main
         with:
           token: ${{ secrets.GH_SA_TOKEN }}
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           service_account_key: ${{ secrets.GCP_SA_KEY }}
           image_project: ubuntu-os-cloud
           image_family: ubuntu-2204-lts
+          max_run_duration: 1h
+          instance_labels: createdby=ci,environment=test
 
   test:
     needs: create-runner
@@ -33,6 +35,8 @@ jobs:
  * `create-runner` creates the GCE VM and registers the runner with unique label
  * `test` uses the runner
  * the runner VM will be automatically shut down after the workflow via [self-hosted runner hook](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/running-scripts-before-or-after-a-job)
+ * `max_run_duration` provides a platform-enforced deletion deadline for both Spot and standard VMs (default: `3d`)
+ * `instance_labels` adds comma-separated GCE labels alongside the action's internal runner labels
 
 ## Inputs
 
