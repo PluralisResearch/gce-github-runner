@@ -398,8 +398,8 @@ function start_vm {
     ${maintenance_policy_flag} \
     "${min_cpu_platform_flag}" \
     --labels="${labels}" \
-    --metadata=startup-script="$startup_script" \
-    && echo "label=${VM_ID}" >> $GITHUB_OUTPUT
+    --metadata=startup-script="$startup_script"
+  echo "label=${VM_ID}" >> $GITHUB_OUTPUT
 
   safety_off
   while (( i++ < 60 )); do
