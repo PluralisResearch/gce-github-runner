@@ -34,6 +34,7 @@ network=
 scopes=
 shutdown_timeout=
 max_run_duration=
+github_job_start_ttl_seconds=0
 instance_labels=
 subnet=
 preemptible=
@@ -65,6 +66,7 @@ while getopts_long :h opt \
   scopes required_argument \
   shutdown_timeout required_argument \
   max_run_duration required_argument \
+  github_job_start_ttl_seconds required_argument \
   instance_labels optional_argument \
   subnet optional_argument \
   preemptible required_argument \
@@ -132,6 +134,9 @@ do
     max_run_duration)
       max_run_duration=$OPTLARG
       ;;
+    github_job_start_ttl_seconds)
+      github_job_start_ttl_seconds=$OPTLARG
+      ;;
     instance_labels)
       instance_labels=${OPTLARG-$instance_labels}
       ;;
@@ -182,6 +187,10 @@ function gcloud_auth {
 
 function start_vm {
   echo "Starting GCE VM ..."
+  if [[ ! "${github_job_start_ttl_seconds}" =~ ^[0-9]+$ ]]; then
+    echo "❌ github_job_start_ttl_seconds must be a non-negative integer"
+    exit 2
+  fi
   if [[ -z "${service_account_key}" ]] || [[ -z "${project_id}" ]]; then
     echo "Won't authenticate gcloud. If you wish to authenticate gcloud provide both service_account_key and project_id."
   else
@@ -214,6 +223,49 @@ function start_vm {
   echo "The new GCE VM will be ${VM_ID}"
 
   shutdown_command="gcloud compute instances delete $VM_ID --zone=$machine_zone --quiet"
+  job_start_timer_setup=
+  job_start_timer_command=true
+  runner_hook_env='echo "ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/usr/bin/gce_runner_shutdown.sh" >.env'
+  if (( github_job_start_ttl_seconds > 0 )); then
+    job_start_timer_setup="
+	cat <<-EOF > /etc/systemd/system/job-start-timeout.sh
+	#!/bin/sh
+	echo \"❌ No GitHub job started on $VM_ID within ${github_job_start_ttl_seconds} seconds; deleting it ...\"
+	${shutdown_command}
+	EOF
+
+	cat <<-EOF > /etc/systemd/system/job-start-timeout.service
+	[Unit]
+	Description=Delete an unclaimed GitHub Actions runner
+	[Service]
+	Type=oneshot
+	ExecStart=/etc/systemd/system/job-start-timeout.sh
+	EOF
+
+	cat <<-EOF > /etc/systemd/system/job-start-timeout.timer
+	[Unit]
+	Description=Wait for a GitHub Actions job to start
+	[Timer]
+	OnActiveSec=${github_job_start_ttl_seconds}
+	Unit=job-start-timeout.service
+	[Install]
+	WantedBy=timers.target
+	EOF
+
+	cat <<-EOF > /usr/bin/gce_runner_job_started.sh
+	#!/bin/sh
+	echo \"✅ GitHub job started on $VM_ID; cancelling the no-job timeout.\"
+	systemctl stop job-start-timeout.timer >/dev/null 2>&1 || true
+	systemctl disable job-start-timeout.timer >/dev/null 2>&1 || true
+	exit 0
+	EOF
+
+	chmod +x /etc/systemd/system/job-start-timeout.sh /usr/bin/gce_runner_job_started.sh
+    "
+    job_start_timer_command="systemctl enable --now job-start-timeout.timer"
+    runner_hook_env="${runner_hook_env}
+    echo \"ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/bin/gce_runner_job_started.sh\" >>.env"
+  fi
   startup_prelude="#!/bin/bash
   set -e
   shutdown() {
@@ -242,6 +294,7 @@ function start_vm {
 	EOF
 
 	chmod +x /etc/systemd/system/shutdown.sh
+	${job_start_timer_setup}
 	systemctl daemon-reload
 	systemctl enable shutdown.service
 
@@ -253,10 +306,11 @@ function start_vm {
 	EOF
 
 	# See: https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/running-scripts-before-or-after-a-job
-	echo "ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/usr/bin/gce_runner_shutdown.sh" >.env
+	${runner_hook_env}
 	gcloud compute instances add-labels ${VM_ID} --zone=${machine_zone} --labels=gh_ready=0 && \\
 	RUNNER_ALLOW_RUNASROOT=1 ./config.sh --url https://github.com/${GITHUB_REPOSITORY} --token ${RUNNER_TOKEN} --labels ${VM_ID} --unattended ${ephemeral_flag} --disableupdate && \\
 	./svc.sh install && \\
+	${job_start_timer_command} && \\
 	./svc.sh start && \\
 	gcloud compute instances add-labels ${VM_ID} --zone=${machine_zone} --labels=gh_ready=1
   "

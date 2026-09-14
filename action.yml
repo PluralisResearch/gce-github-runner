@@ -94,6 +94,10 @@ inputs:
     description: "Provider-enforced maximum VM runtime before deletion."
     default: 3d
     required: true
+  github_job_start_ttl_seconds:
+    description: "Delete the VM if no GitHub Actions job starts within this many seconds. Zero disables this timeout."
+    default: "0"
+    required: true
   instance_labels:
     description: "Additional comma-separated GCE instance labels."
     default: ""
@@ -128,6 +132,7 @@ runs:
       env:
         INPUT_INSTANCE_LABELS: ${{ inputs.instance_labels }}
         INPUT_MAX_RUN_DURATION: ${{ inputs.max_run_duration }}
+        INPUT_GITHUB_JOB_START_TTL_SECONDS: ${{ inputs.github_job_start_ttl_seconds }}
       run: >
         ${{ github.action_path }}/action.sh
         --command=start
@@ -145,6 +150,7 @@ runs:
         --scopes=${{ inputs.scopes }}
         --shutdown_timeout=${{ inputs.shutdown_timeout }}
         --max_run_duration="${INPUT_MAX_RUN_DURATION}"
+        --github_job_start_ttl_seconds="${INPUT_GITHUB_JOB_START_TTL_SECONDS}"
         --instance_labels="${INPUT_INSTANCE_LABELS}"
         --runner_service_account=${{ inputs.runner_service_account }}
         --image_project=${{ inputs.image_project }}

@@ -23,6 +23,7 @@ jobs:
           image_project: ubuntu-os-cloud
           image_family: ubuntu-2204-lts
           max_run_duration: 1h
+          github_job_start_ttl_seconds: 300
           instance_labels: createdby=ci,environment=test
 
   test:
@@ -36,6 +37,7 @@ jobs:
  * `test` uses the runner
  * the runner VM will be automatically shut down after the workflow via [self-hosted runner hook](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/running-scripts-before-or-after-a-job)
  * `max_run_duration` provides a platform-enforced deletion deadline for both Spot and standard VMs (default: `3d`)
+ * `github_job_start_ttl_seconds` deletes a registered runner if no job starts before the deadline (default: `0`, disabled)
  * `instance_labels` adds comma-separated GCE labels alongside the action's internal runner labels
 
 ## Inputs
