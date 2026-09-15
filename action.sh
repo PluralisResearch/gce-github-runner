@@ -38,6 +38,7 @@ github_job_start_ttl_seconds=0
 instance_labels=
 subnet=
 preemptible=
+fallback_to_on_demand=
 ephemeral=
 no_external_address=
 actions_preinstalled=
@@ -70,6 +71,7 @@ while getopts_long :h opt \
   instance_labels optional_argument \
   subnet optional_argument \
   preemptible required_argument \
+  fallback_to_on_demand required_argument \
   ephemeral required_argument \
   no_external_address required_argument \
   actions_preinstalled required_argument \
@@ -145,6 +147,9 @@ do
       ;;
     preemptible)
       preemptible=$OPTLARG
+      ;;
+    fallback_to_on_demand)
+      fallback_to_on_demand=$OPTLARG
       ;;
     ephemeral)
       ephemeral=$OPTLARG
@@ -379,26 +384,50 @@ function start_vm {
     labels+=",${instance_labels}"
   fi
 
-  gcloud compute instances create ${VM_ID} \
-    --zone=${machine_zone} \
-    ${disk_size_flag} \
-    ${boot_disk_type_flag} \
-    --machine-type=${machine_type} \
-    --scopes=${scopes} \
-    ${service_account_flag} \
-    ${image_project_flag} \
-    ${image_flag} \
-    ${image_family_flag} \
-    ${preemptible_flag} \
-    ${max_run_duration_flag} \
-    ${no_external_address_flag} \
-    ${network_flag} \
-    ${subnet_flag} \
-    ${accelerator} \
-    ${maintenance_policy_flag} \
-    "${min_cpu_platform_flag}" \
-    --labels="${labels}" \
-    --metadata=startup-script="$startup_script"
+  function create_vm {
+    local provisioning_model_flag="${1}"
+    gcloud compute instances create ${VM_ID} \
+      --zone=${machine_zone} \
+      ${disk_size_flag} \
+      ${boot_disk_type_flag} \
+      --machine-type=${machine_type} \
+      --scopes=${scopes} \
+      ${service_account_flag} \
+      ${image_project_flag} \
+      ${image_flag} \
+      ${image_family_flag} \
+      ${provisioning_model_flag} \
+      ${max_run_duration_flag} \
+      ${no_external_address_flag} \
+      ${network_flag} \
+      ${subnet_flag} \
+      ${accelerator} \
+      ${maintenance_policy_flag} \
+      "${min_cpu_platform_flag}" \
+      --labels="${labels}" \
+      --metadata=startup-script="$startup_script"
+  }
+
+  function is_capacity_stockout {
+    local message
+    message=$(printf '%s' "${1}" | tr '[:upper:]' '[:lower:]')
+    [[ "${message}" == *"resource_pool_exhausted"* || \
+       "${message}" == *"does not have enough resources available"* ]]
+  }
+
+  create_output=
+  if create_output=$(create_vm "${preemptible_flag}" 2>&1); then
+    printf '%s\n' "${create_output}"
+  else
+    printf '%s\n' "${create_output}" >&2
+    if [[ "${preemptible}" == "true" && "${fallback_to_on_demand}" == "true" ]] && \
+       is_capacity_stockout "${create_output}"; then
+      echo "::warning::Spot capacity is exhausted in ${machine_zone}; retrying as a standard VM."
+      create_vm ""
+    else
+      return 1
+    fi
+  fi
   echo "label=${VM_ID}" >> $GITHUB_OUTPUT
 
   safety_off

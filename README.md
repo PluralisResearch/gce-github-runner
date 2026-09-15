@@ -39,6 +39,7 @@ jobs:
  * `max_run_duration` provides a platform-enforced deletion deadline for both Spot and standard VMs (default: `3d`)
  * `github_job_start_ttl_seconds` deletes a registered runner if no job starts before the deadline (default: `0`, disabled)
  * `instance_labels` adds comma-separated GCE labels alongside the action's internal runner labels
+ * `fallback_to_on_demand` retries a Spot request as a standard VM only when GCE reports exhausted capacity (default: `false`)
 
 ## Inputs
 
